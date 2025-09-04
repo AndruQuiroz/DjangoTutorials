@@ -1,9 +1,12 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import HttpResponse
-from django.views.generic import TemplateView
+from django.views.generic import TemplateView, ListView
 from django.views import View
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 from django import forms
-from .models import Product 
+from django.core.exceptions import ValidationError
+from .models import Product
+from .utils import ImageLocalStorage
 # Create your views here.
 def homePageView(request): 
     return HttpResponse('Hello World!')
@@ -33,7 +36,7 @@ class ProductIndexView(View):
         viewData = {}
         viewData["title"] = "Products - Online Store"
         viewData["subtitle"] = "List of products"
-        viewData["products"] = Product.objects.all() # <-- Cambio clave
+        viewData["products"] = Product.objects.all() 
         return render(request, self.template_name, viewData)
 
 class ProductShowView(View):
@@ -80,11 +83,74 @@ class ProductCreateView(View):
         form = ProductForm(request.POST)
         if form.is_valid():
             form.save()
-            # El PDF sugiere 'product-created' pero esa ruta no existe.
-            # Redirigimos a la lista de productos que es más lógico.
             return redirect('index')
         else:
             viewData = {}
             viewData["title"] = "Create product"
             viewData["form"] = form
             return render(request, self.template_name, viewData)
+
+
+class CartView(View):
+    template_name = 'cart/index.html'
+
+    def get(self, request):
+        products = {} 
+        products[121] = {'name': 'Tv samsung', 'price': '1000'} 
+        products[11] = {'name': 'Iphone', 'price': '2000'} 
+        cart_products = {} 
+        cart_product_data = request.session.get('cart_product_data', {}) 
+
+        for key, product in products.items(): 
+            if str(key) in cart_product_data.keys(): 
+                cart_products[key] = product 
+        view_data = {
+            'title': 'Cart - Online Store', 
+            'subtitle': 'Shopping Cart', 
+            'products': products, 
+            'cart_products': cart_products 
+        }
+        return render(request, self.template_name, view_data)
+
+    def post(self, request, product_id):
+        cart_product_data = request.session.get('cart_product_data', {}) 
+        cart_product_data[product_id] = product_id 
+        request.session['cart_product_data'] = cart_product_data 
+        return redirect('cart_index') 
+
+class CartRemoveAllView(View):
+    def post(self, request):
+        
+        if 'cart_product_data' in request.session: 
+            del request.session['cart_product_data'] 
+        return redirect('cart_index') 
+
+def ImageViewFactory(image_storage):
+    class ImageView(View):
+        template_name = 'images/index.html'
+
+        def get(self, request):
+            image_url = request.session.get('image_url', '')
+            # Corregido: El PDF pasaba un diccionario con sintaxis incorrecta
+            return render(request, self.template_name, {'image_url': image_url})
+
+        def post(self, request):
+            image_url = image_storage.store(request)
+            request.session['image_url'] = image_url
+            return redirect('image_index')
+
+    return ImageView
+
+class ImageViewNoDI(View):
+    template_name = 'imagesnotdi/index.html'
+
+    def get(self, request):
+        image_url = request.session.get('image_url', '')
+        return render(request, self.template_name, {'image_url': image_url})
+
+    def post(self, request):
+        image_storage = ImageLocalStorage() # <-- La dependencia se crea aquí directamente
+        image_url = image_storage.store(request)
+        request.session['image_url'] = image_url
+
+        return redirect('imagenodi_index')
